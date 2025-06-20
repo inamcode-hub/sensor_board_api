@@ -88,6 +88,19 @@ const postTableData = async (req, res) => {
   console.log('POST /api/query called');
   const { start, end, inputInterval = 'minute' } = req.body;
 
+  // Translate frontend-friendly intervals to PostgreSQL-compatible units
+  const intervalMap = {
+    '1s': 'second',
+    '1m': 'minute',
+    '1h': 'hour',
+    raw: null,
+  };
+
+  const interval = intervalMap[inputInterval];
+  if (interval === undefined) {
+    return res.status(400).json({ error: 'Invalid interval format' });
+  }
+
   try {
     const startToronto = moment
       .tz(start, 'YYYY-MM-DD HH:mm', 'America/Toronto')
@@ -96,13 +109,25 @@ const postTableData = async (req, res) => {
       .tz(end, 'YYYY-MM-DD HH:mm', 'America/Toronto')
       .format('YYYY-MM-DD HH:mm:ss');
 
-    const query = `
-      SELECT DISTINCT ON (DATE_TRUNC('${inputInterval}', timestamp)) *
-      FROM sensor_stablity_test_system_table_johnny
-      WHERE timestamp >= '${startToronto}' AT TIME ZONE 'America/Toronto'
-        AND timestamp <= '${endToronto}' AT TIME ZONE 'America/Toronto' + interval '1 second'
-      ORDER BY DATE_TRUNC('${inputInterval}', timestamp), timestamp ASC
-    `;
+    let query;
+    if (interval === null) {
+      // Raw mode: return full-resolution data
+      query = `
+        SELECT * FROM sensor_stablity_test_system_table_johnny
+        WHERE timestamp >= '${startToronto}' AT TIME ZONE 'America/Toronto'
+          AND timestamp <= '${endToronto}' AT TIME ZONE 'America/Toronto' + interval '1 second'
+        ORDER BY timestamp ASC
+      `;
+    } else {
+      // Aggregated by valid PostgreSQL interval
+      query = `
+        SELECT DISTINCT ON (DATE_TRUNC('${interval}', timestamp)) *
+        FROM sensor_stablity_test_system_table_johnny
+        WHERE timestamp >= '${startToronto}' AT TIME ZONE 'America/Toronto'
+          AND timestamp <= '${endToronto}' AT TIME ZONE 'America/Toronto' + interval '1 second'
+        ORDER BY DATE_TRUNC('${interval}', timestamp), timestamp ASC
+      `;
+    }
 
     const [results] = await SensorReading.sequelize.query(query);
 
