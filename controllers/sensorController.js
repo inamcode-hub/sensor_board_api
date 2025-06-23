@@ -1,5 +1,6 @@
 const moment = require('moment-timezone');
 const SensorReading = require('../models/sensorReading');
+const sequelize = SensorReading.sequelize;
 
 const getTableData = async (req, res) => {
   try {
@@ -85,10 +86,9 @@ const getCalData = async (req, res) => {
 };
 
 const postTableData = async (req, res) => {
-  console.log('POST /api/query called');
-  const { start, end, inputInterval = 'minute' } = req.body;
+  console.log('📨 POST /api/query');
+  const { start, end, inputInterval } = req.body;
 
-  // Translate frontend-friendly intervals to PostgreSQL-compatible units
   const intervalMap = {
     '1s': 'second',
     '1m': 'minute',
@@ -103,49 +103,57 @@ const postTableData = async (req, res) => {
 
   try {
     const startToronto = moment
-      .tz(start, 'YYYY-MM-DD HH:mm', 'America/Toronto')
+      .tz(start, 'America/Toronto')
       .format('YYYY-MM-DD HH:mm:ss');
     const endToronto = moment
-      .tz(end, 'YYYY-MM-DD HH:mm', 'America/Toronto')
+      .tz(end, 'America/Toronto')
       .format('YYYY-MM-DD HH:mm:ss');
 
+    console.log('🕒 Parsed times (Toronto, no timezone cast):');
+    console.log('  ➤ startToronto:', startToronto);
+    console.log('  ➤ endToronto  :', endToronto);
+
+    const [minMax] = await sequelize.query(`
+      SELECT MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts
+      FROM sensor_stablity_test_system_table_johnny
+    `);
+    console.log('📊 DB Range:', minMax[0]);
+
     let query;
+
     if (interval === null) {
-      // Raw mode: return full-resolution data
       query = `
         SELECT * FROM sensor_stablity_test_system_table_johnny
-        WHERE timestamp >= '${startToronto}' AT TIME ZONE 'America/Toronto'
-          AND timestamp <= '${endToronto}' AT TIME ZONE 'America/Toronto' + interval '1 second'
+        WHERE timestamp >= '${startToronto}'
+          AND timestamp <= '${endToronto}'::timestamp + interval '1 second'
         ORDER BY timestamp ASC
       `;
     } else {
-      // Aggregated by valid PostgreSQL interval
       query = `
         SELECT DISTINCT ON (DATE_TRUNC('${interval}', timestamp)) *
         FROM sensor_stablity_test_system_table_johnny
-        WHERE timestamp >= '${startToronto}' AT TIME ZONE 'America/Toronto'
-          AND timestamp <= '${endToronto}' AT TIME ZONE 'America/Toronto' + interval '1 second'
-        ORDER BY DATE_TRUNC('${interval}', timestamp), timestamp ASC
+        WHERE timestamp >= '${startToronto}'
+          AND timestamp <= '${endToronto}'::timestamp + interval '1 second'
+        ORDER BY DATE_TRUNC('${interval}', timestamp) ASC, timestamp ASC
       `;
     }
 
-    const [results] = await SensorReading.sequelize.query(query);
+    console.log('🧾 SQL Query:\n', query);
 
-    const converted = results.map((item) => ({
+    const [rows] = await sequelize.query(query);
+    console.log(`📥 Raw results: ${rows.length} row(s) found`);
+
+    const converted = rows.map((item) => ({
       ...item,
-      timestamp: moment
-        .tz(item.timestamp, 'UTC')
-        .tz('America/Toronto')
-        .format('YYYY-MM-DDTHH:mm:ss.SSS[Z]'),
+      timestamp: moment(item.timestamp).format(), // ISO with correct local offset
     }));
 
     res.json(converted);
   } catch (err) {
-    console.error('Error in postTableData:', err);
+    console.error('❌ Error in postTableData:', err);
     res.status(500).json({ error: 'DB error' });
   }
 };
-
 module.exports = {
   getTableData,
   getSensorStabilityTestSystemData,
