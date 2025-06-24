@@ -154,6 +154,63 @@ const postTableData = async (req, res) => {
     res.status(500).json({ error: 'DB error' });
   }
 };
+
+const postAlignedTableData = async (req, res) => {
+  console.log('🎯 POST /api/aligned-query');
+  const { start, end, inputInterval } = req.body;
+
+  // Normalize input interval
+  const intervalMap = {
+    hour: 'hour',
+    minute: 'minute',
+    second: 'second',
+  };
+
+  const interval = intervalMap[inputInterval];
+  if (!interval) {
+    return res.status(400).json({ error: 'Invalid inputInterval' });
+  }
+
+  try {
+    // Treat start/end as Toronto local
+    const startToronto = moment
+      .tz(start, 'YYYY-MM-DD HH:mm', 'America/Toronto')
+      .format('YYYY-MM-DD HH:mm:ss');
+    const endToronto = moment
+      .tz(end, 'YYYY-MM-DD HH:mm', 'America/Toronto')
+      .format('YYYY-MM-DD HH:mm:ss');
+
+    const query = `
+      SELECT DISTINCT ON (DATE_TRUNC('${interval}', timestamp)) *
+      FROM sensor_stablity_test_system_table_johnny
+      WHERE timestamp >= '${startToronto}'
+        AND timestamp <= '${endToronto}'::timestamp + interval '1 second'
+      ORDER BY DATE_TRUNC('${interval}', timestamp) ASC, timestamp ASC
+    `;
+
+    const [rows] = await sequelize.query(query);
+
+    const formatted = rows.map((row) => {
+      const obj = {
+        id: row.id,
+        timestamp: new Date(row.timestamp).toISOString(), // Match Allen: UTC ISO
+      };
+
+      for (let i = 1; i <= 24; i++) {
+        const key = `ai${i}`;
+        const val = parseFloat(row[key]);
+        obj[key] = isNaN(val) ? null : val.toFixed(6);
+      }
+
+      return obj;
+    });
+
+    res.json(formatted);
+  } catch (err) {
+    console.error('❌ Error in postAlignedTableData:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
 module.exports = {
   getTableData,
   getSensorStabilityTestSystemData,
@@ -162,4 +219,5 @@ module.exports = {
   getSensorStabilityTestSystemData_1h,
   getCalData,
   postTableData,
+  postAlignedTableData,
 };
