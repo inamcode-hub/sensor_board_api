@@ -15,16 +15,16 @@ app.use(cors());
 app.use(express.json());
 
 // ✅ Serve static dist folder
-app.use(express.static(path.join(__dirname, 'dist')));
+app.use(express.static(path.join(__dirname, 'public/dist')));
 
 // ✅ API routes
 const sensorRoutes = require('./routes/sensorRoutes');
 app.use('/api/v1', sensorRoutes);
 
 // ✅ Optional SPA fallback (skip if you're serving frontend separately)
-// app.get('*', (req, res) => {
-//   res.sendFile(path.join(__dirname, 'dist/index.html'));
-// });
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/dist/index.html'));
+});
 
 // ✅ Start server
 app.listen(PORT, () => {
