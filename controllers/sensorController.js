@@ -196,6 +196,8 @@ const postAlignedTableData = async (req, res) => {
         timestamp: new Date(row.timestamp).toISOString(), // Match Allen: UTC ISO
       };
 
+      //
+
       for (let i = 1; i <= 24; i++) {
         const key = `ai${i}`;
         const val = parseFloat(row[key]);
